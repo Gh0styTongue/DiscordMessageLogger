@@ -77,18 +77,6 @@ pip install aiohttp
 - The logging process continues indefinitely, refreshing messages every 0.5 seconds.
 - If a channel has a lot of messages, consider adjusting the `limit` argument in the `fetch_messages` function.
 
-## Ethical Usage
-
-Before using this script, please ensure that you have permission from the server administrators and members to log messages. Using this script without consent may result in negative consequences, including the termination of your Discord account. **It is important to note that using user tokens for this purpose is against Discord’s ToS**, and can result in your account being banned. Always act responsibly and in accordance with Discord’s guidelines and community rules.
-
-## License
-
-This script is provided under the MIT License. Feel free to use and modify it as needed, but always respect the privacy and consent of others in Discord servers.
-
-## Conclusion
-
-While this script can serve legitimate purposes such as archiving or monitoring public channels, **it is essential to be aware of how it can be misused**. Unauthorized use of this script may violate Discord’s Terms of Service, result in account bans, and have legal repercussions. Use responsibly, and always follow Discord’s guidelines and ToS.
-
 ### Key Changes:
 1. **Bot vs. User Token Clarification:** I've added explicit mentions that the script can work with both bot and user tokens, but using a user token violates Discord’s ToS and can lead to account bans.
 2. **Updated Warnings on User Token Use:** Emphasized that using user tokens for this script is risky and against Discord's guidelines.
