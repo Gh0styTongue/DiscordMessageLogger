@@ -2,7 +2,7 @@
 
 **Warning: This script logs messages in real-time from Discord servers and channels, including deleted messages. It is important to follow Discord's Terms of Service (ToS) and use this script responsibly.**
 
-This script is designed to log messages from a selected Discord server and channel, including deleted messages. The logged messages are saved to a file on your local machine. This script can be useful for archiving, monitoring, or auditing Discord chats, but **must only be used in compliance with Discord's Terms of Service**.
+This script is designed to log messages from a selected Discord server and channel, including deleted messages. It can be used with both **Discord bot tokens** and **Discord user tokens**. The logged messages are saved to a file on your local machine. This script can be useful for archiving, monitoring, or auditing Discord chats, but **must only be used in compliance with Discord's Terms of Service (ToS)**.
 
 ## Important Legal Disclaimer
 
@@ -11,9 +11,13 @@ By using this script, **you agree to comply with Discord's Terms of Service (ToS
 - **Discord ToS:** https://discord.com/terms
 
 ### Key Points:
+- **Bot Tokens vs. User Tokens:**
+   - **Bot Tokens**: Used for bots that have permissions granted by the server administrators. Bots are limited by the permissions assigned and cannot log private or direct messages unless explicitly allowed.
+   - **User Tokens**: Can be used for actions that mimic a user’s behavior, giving more direct access to server messages and interactions. **Using user tokens for logging is risky and can violate Discord's ToS**, especially if you do not have consent from server members.
+
 - **Logging of Deleted Messages:** This script logs not only messages as they are posted but also deleted messages if the bot has appropriate permissions. Be aware that logging deleted messages may violate privacy and community guidelines.
 - **Usage with Bad Intentions:** While this script can be used for legitimate purposes like archiving public conversations, **it can also be misused for malicious activities**, including spying on users or collecting private information without consent. We strongly advise against using this script for any illegal or harmful purposes.
-  
+
 ## Requirements
 
 - Python 3.7 or later
@@ -27,8 +31,10 @@ pip install aiohttp
 
 ## How to Use
 
-1. **Set up your Discord bot token:**
-   - Replace the `TOKEN` variable in the script with your Discord bot token.
+1. **Set up your Discord bot or user token:**
+   - Replace the `TOKEN` variable in the script with your Discord **bot token** or **user token**. 
+     - **Bot Token:** If you're using a bot, make sure the bot has permissions to access and log messages from the selected channels.
+     - **User Token:** If you're using a user token (which is against Discord's ToS for automated access), be aware that this is a violation of Discord's guidelines, and **it can result in account bans**. We strongly advise against using user tokens for logging purposes.
 
 2. **Running the Script:**
    - Run the script with Python.
@@ -73,7 +79,7 @@ pip install aiohttp
 
 ## Ethical Usage
 
-Before using this script, please ensure that you have permission from the server administrators and members to log messages. Using this script without consent may result in negative consequences, including the termination of your Discord account. Always act responsibly and in accordance with Discord’s guidelines and community rules.
+Before using this script, please ensure that you have permission from the server administrators and members to log messages. Using this script without consent may result in negative consequences, including the termination of your Discord account. **It is important to note that using user tokens for this purpose is against Discord’s ToS**, and can result in your account being banned. Always act responsibly and in accordance with Discord’s guidelines and community rules.
 
 ## License
 
@@ -84,6 +90,14 @@ This script is provided under the MIT License. Feel free to use and modify it as
 While this script can serve legitimate purposes such as archiving or monitoring public channels, **it is essential to be aware of how it can be misused**. Unauthorized use of this script may violate Discord’s Terms of Service, result in account bans, and have legal repercussions. Use responsibly, and always follow Discord’s guidelines and ToS.
 
 ### Key changes:
-1. **Terms of Service Emphasis:** Clear and repeated mentions of **Discord's Terms of Service (ToS)** and the potential consequences of misuse.
-2. **Logging of Deleted Messages:** Explicitly mentioned that the script logs **deleted messages**, which can be a privacy concern.
-3. **Ethical Usage Warning:** A warning about using the script responsibly and ensuring consent from server admins and members.
+1. **Bot Tokens vs. User Tokens:** The script now works with both bot and user tokens, with a clear warning about the legal and ethical issues with using user tokens.
+2. **Terms of Service Emphasis:** Clear and repeated mentions of **Discord's Terms of Service (ToS)** and the potential consequences of misuse.
+3. **Logging of Deleted Messages:** Explicitly mentioned that the script logs **deleted messages**, which can be a privacy concern.
+4. **Ethical Usage Warning:** A warning about using the script responsibly and ensuring consent from server admins and members.
+
+```
+
+### Key Changes:
+1. **Bot vs. User Token Clarification:** I've added explicit mentions that the script can work with both bot and user tokens, but using a user token violates Discord’s ToS and can lead to account bans.
+2. **Updated Warnings on User Token Use:** Emphasized that using user tokens for this script is risky and against Discord's guidelines.
+3. **Legal and Ethical Warnings:** Expanded the legal and ethical usage section to reflect concerns about both token types, particularly with respect to deleted messages.
