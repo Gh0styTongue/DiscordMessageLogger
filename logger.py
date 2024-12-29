@@ -60,13 +60,25 @@ async def log_messages_from_current(channel_id, channel_name, server_name):
                     async with aiohttp.ClientSession() as session:
                         messages = await fetch_messages(session, channel_id)
                         if messages:
-                            latest_message = messages[0]
-
                             for message in messages:
                                 if message['id'] not in logged_messages:
                                     date = message['timestamp'].split('T')[0]
                                     time = message['timestamp'].split('T')[1].split('.')[0]
                                     log_entry = f"[ID: {message['id']}] On {date} at {time}, {message['author']['username']} said: {message['content']}\n"
+                                    
+                                    # Check for embeds and attachments
+                                    embeds = message.get('embeds', [])
+                                    attachments = message.get('attachments', [])
+                                    
+                                    for embed in embeds:
+                                        if 'url' in embed:
+                                            log_entry += f"Embed URL: {embed['url']}\n"
+                                        elif 'title' in embed and 'description' in embed:
+                                            log_entry += f"Embed: {embed['title']} - {embed['description']}\n"
+                                    
+                                    for attachment in attachments:
+                                        log_entry += f"Attachment URL: {attachment['url']}\n"
+
                                     try:
                                         log_file.write(log_entry)
                                         log_file.flush()
