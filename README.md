@@ -89,14 +89,6 @@ This script is provided under the MIT License. Feel free to use and modify it as
 
 While this script can serve legitimate purposes such as archiving or monitoring public channels, **it is essential to be aware of how it can be misused**. Unauthorized use of this script may violate Discord’s Terms of Service, result in account bans, and have legal repercussions. Use responsibly, and always follow Discord’s guidelines and ToS.
 
-### Key changes:
-1. **Bot Tokens vs. User Tokens:** The script now works with both bot and user tokens, with a clear warning about the legal and ethical issues with using user tokens.
-2. **Terms of Service Emphasis:** Clear and repeated mentions of **Discord's Terms of Service (ToS)** and the potential consequences of misuse.
-3. **Logging of Deleted Messages:** Explicitly mentioned that the script logs **deleted messages**, which can be a privacy concern.
-4. **Ethical Usage Warning:** A warning about using the script responsibly and ensuring consent from server admins and members.
-
-```
-
 ### Key Changes:
 1. **Bot vs. User Token Clarification:** I've added explicit mentions that the script can work with both bot and user tokens, but using a user token violates Discord’s ToS and can lead to account bans.
 2. **Updated Warnings on User Token Use:** Emphasized that using user tokens for this script is risky and against Discord's guidelines.
