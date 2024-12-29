@@ -38,7 +38,7 @@ async def get_guild_channels(session, guild_id):
     channels = await fetch_data(session, url)
     return [ch for ch in channels if ch and ch.get('type') == 0] if channels else []
 
-async def fetch_messages(session, channel_id, limit=1):
+async def fetch_messages(session, channel_id, limit=50):
     url = f"{BASE_URL}/channels/{channel_id}/messages?limit={limit}"
     return await fetch_data(session, url)
 
