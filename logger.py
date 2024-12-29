@@ -15,6 +15,7 @@ selected_channel_id = None
 logging_active = True
 logged_messages = {}
 last_message_id = None
+download_attachments = False
 
 async def fetch_data(session, url):
     async with session.get(url, headers=HEADERS) as response:
@@ -27,6 +28,22 @@ async def fetch_data(session, url):
 async def get_current_user(session):
     url = f"{BASE_URL}/users/@me"
     return await fetch_data(session, url)
+
+async def download_attachment(attachment_url, server_name, channel_name, filename):
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(attachment_url) as response:
+                if response.status == 200:
+                    attachment_folder = os.path.join(server_name, channel_name, "attachments")
+                    if not os.path.exists(attachment_folder):
+                        os.makedirs(attachment_folder)
+                    
+                    file_path = os.path.join(attachment_folder, filename)
+                    with open(file_path, 'wb') as f:
+                        f.write(await response.read())
+                    print(f"Downloaded: {file_path}")
+        except Exception as e:
+            print(f"Failed to download attachment: {e}")
 
 async def get_user_guilds(session):
     url = f"{BASE_URL}/users/@me/guilds"
@@ -66,9 +83,10 @@ async def log_messages_from_current(channel_id, channel_name, server_name):
                                     time = message['timestamp'].split('T')[1].split('.')[0]
                                     log_entry = f"[ID: {message['id']}] On {date} at {time}, {message['author']['username']} said: {message['content']}\n"
                                     
-                                    # Check for embeds and attachments
                                     embeds = message.get('embeds', [])
                                     attachments = message.get('attachments', [])
+                                    stickers = message.get('sticker_items', [])
+                                    reference = message.get('referenced_message', None)
                                     
                                     for embed in embeds:
                                         if 'url' in embed:
@@ -78,6 +96,17 @@ async def log_messages_from_current(channel_id, channel_name, server_name):
                                     
                                     for attachment in attachments:
                                         log_entry += f"Attachment URL: {attachment['url']}\n"
+                                        if download_attachments:
+                                            await download_attachment(attachment['url'], server_name, channel_name, attachment['filename'])
+
+                                    for sticker in stickers:
+                                        log_entry += f"Sticker: {sticker['name']} (ID: {sticker['id']})\n"
+
+                                    if reference:
+                                        log_entry += f"Reply to: {reference['author']['username']} - {reference['content'][:50]}...\n"
+
+                                    if 'flags' in message and message['flags'] & 1 << 11: 
+                                        log_entry += f"Forwarded from: {message.get('referenced_message', {}).get('id', 'Unknown')}\n"
 
                                     try:
                                         log_file.write(log_entry)
@@ -207,6 +236,9 @@ async def main():
                 print(f"Logged into account: {user.get('username', 'Unknown')}")
             else:
                 print("Could not fetch user information.")
+
+            global download_attachments
+            download_attachments = input("Would you like to download attachments? (yes/no): ").lower() == 'yes'
 
         print("Fetching available servers...")
         await select_server()
