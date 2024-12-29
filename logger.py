@@ -24,6 +24,10 @@ async def fetch_data(session, url):
             print(f"API Error: {url} returned status code {response.status}")
             return None
 
+async def get_current_user(session):
+    url = f"{BASE_URL}/users/@me"
+    return await fetch_data(session, url)
+
 async def get_user_guilds(session):
     url = f"{BASE_URL}/users/@me/guilds"
     guilds = await fetch_data(session, url)
@@ -34,7 +38,7 @@ async def get_guild_channels(session, guild_id):
     channels = await fetch_data(session, url)
     return [ch for ch in channels if ch and ch.get('type') == 0] if channels else []
 
-async def fetch_messages(session, channel_id, limit=50):
+async def fetch_messages(session, channel_id, limit=1):
     url = f"{BASE_URL}/channels/{channel_id}/messages?limit={limit}"
     return await fetch_data(session, url)
 
@@ -185,6 +189,13 @@ def handle_exit(signum, frame):
 
 async def main():
     try:
+        async with aiohttp.ClientSession() as session:
+            user = await get_current_user(session)
+            if user:
+                print(f"Logged into account: {user.get('username', 'Unknown')}")
+            else:
+                print("Could not fetch user information.")
+
         print("Fetching available servers...")
         await select_server()
         await select_channel()
