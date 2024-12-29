@@ -84,8 +84,3 @@ pip install aiohttp
 - The script only logs messages from text channels (channel type 0).
 - The logging process continues indefinitely, refreshing messages every 0.5 seconds.
 - If a channel has a lot of messages, consider adjusting the `limit` argument in the `fetch_messages` function.
-
-### Key Changes:
-1. **Bot vs. User Token Clarification**: Explicit mentions that the script can work with both bot and user tokens, but using a user token violates Discord’s ToS and can lead to account bans.
-2. **Updated Warnings on User Token Use**: Emphasized that using user tokens for this script is risky and against Discord's guidelines.
-3. **Legal and Ethical Warnings**: Expanded the legal and ethical usage section to reflect concerns about both token types, particularly with respect to deleted messages.
