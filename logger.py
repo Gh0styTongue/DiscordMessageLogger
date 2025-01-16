@@ -1,253 +1,188 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
 import asyncio
 import aiohttp
 import os
-import re
-import signal
-import sys
+import json
 
 BASE_URL = "https://discord.com/api/v9"
-TOKEN = "TOKEN_HERE"
+TOKEN = "Token_Here"
 HEADERS = {"Authorization": TOKEN, "Content-Type": "application/json"}
 
-selected_server = None
-selected_channel = None
-selected_channel_id = None
-logging_active = True
-logged_messages = {}
-last_message_id = None
-download_attachments = False
+class DiscordLoggerApp:
+    def __init__(self, root, loop):
+        self.root = root
+        self.loop = loop
+        self.root.title("Discord Logger")
+        self.root.geometry("800x600")
+        self.root.configure(bg="#2C2F33")
 
-async def fetch_data(session, url):
-    async with session.get(url, headers=HEADERS) as response:
-        if response.status == 200:
-            return await response.json()
-        else:
-            print(f"API Error: {url} returned status code {response.status}")
-            return None
+        self.session = None
+        self.selected_server = None
+        self.selected_channels = []
+        self.logging_active = False
+        self.logged_messages = {}
+        self.download_attachments = tk.BooleanVar()
+        self.log_dir = os.path.join(os.getcwd(), "logs")
 
-async def get_current_user(session):
-    url = f"{BASE_URL}/users/@me"
-    return await fetch_data(session, url)
+        self.create_widgets()
 
-async def download_attachment(attachment_url, server_name, channel_name, filename):
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.get(attachment_url) as response:
-                if response.status == 200:
-                    attachment_folder = os.path.join(server_name, channel_name, "attachments")
-                    if not os.path.exists(attachment_folder):
-                        os.makedirs(attachment_folder)
-                    
-                    file_path = os.path.join(attachment_folder, filename)
-                    with open(file_path, 'wb') as f:
-                        f.write(await response.read())
-                    print(f"Downloaded: {file_path}")
-        except Exception as e:
-            print(f"Failed to download attachment: {e}")
+    def create_widgets(self):
+        self.frame_left = tk.Frame(self.root, bg="#23272A", width=200)
+        self.frame_left.pack(side=tk.LEFT, fill=tk.Y)
 
-async def get_user_guilds(session):
-    url = f"{BASE_URL}/users/@me/guilds"
-    guilds = await fetch_data(session, url)
-    return guilds if guilds else []
+        self.label_servers = tk.Label(self.frame_left, text="Servers", bg="#23272A", fg="#FFFFFF", font=("Arial", 12))
+        self.label_servers.pack(pady=10)
+        self.list_servers = tk.Listbox(self.frame_left, bg="#2C2F33", fg="#FFFFFF", font=("Arial", 10), selectbackground="#7289DA")
+        self.list_servers.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        self.list_servers.bind("<<ListboxSelect>>", self.on_server_selected)
 
-async def get_guild_channels(session, guild_id):
-    url = f"{BASE_URL}/guilds/{guild_id}/channels"
-    channels = await fetch_data(session, url)
-    return [ch for ch in channels if ch and ch.get('type') == 0] if channels else []
+        self.frame_right = tk.Frame(self.root, bg="#2C2F33")
+        self.frame_right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
-async def fetch_messages(session, channel_id, limit=50):
-    url = f"{BASE_URL}/channels/{channel_id}/messages?limit={limit}"
-    return await fetch_data(session, url)
+        self.label_channels = tk.Label(self.frame_right, text="Channels", bg="#2C2F33", fg="#FFFFFF", font=("Arial", 12))
+        self.label_channels.pack(pady=10)
+        self.list_channels = tk.Listbox(self.frame_right, bg="#2C2F33", fg="#FFFFFF", font=("Arial", 10), selectbackground="#7289DA", selectmode=tk.MULTIPLE)
+        self.list_channels.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        self.list_channels.bind("<<ListboxSelect>>", self.on_channel_selected)
 
-async def log_messages_from_current(channel_id, channel_name, server_name):
-    global logged_messages, last_message_id
-    logged_messages = {}
+        self.checkbox_attachments = tk.Checkbutton(self.frame_right, text="Download Attachments", variable=self.download_attachments, bg="#2C2F33", fg="#FFFFFF", selectcolor="#23272A", font=("Arial", 10))
+        self.checkbox_attachments.pack(pady=10)
 
-    try:
-        os.makedirs(server_name, exist_ok=True)
-    except OSError:
-        server_name = "fallback_server"
+        self.btn_start_logging = ttk.Button(self.frame_right, text="Start Logging", command=self.start_logging)
+        self.btn_start_logging.pack(pady=5)
+        self.btn_stop_logging = ttk.Button(self.frame_right, text="Stop Logging", command=self.stop_logging, state=tk.DISABLED)
+        self.btn_stop_logging.pack(pady=5)
 
-    log_file_path = os.path.join(server_name, f"live_{channel_name}.txt")
+        self.label_status = tk.Label(self.frame_right, text="Status: Not logged in", bg="#2C2F33", fg="#FFFFFF", font=("Arial", 10))
+        self.label_status.pack(pady=10)
 
-    try:
-        with open(log_file_path, 'a', encoding='utf-8') as log_file:
-            while logging_active:
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        messages = await fetch_messages(session, channel_id)
-                        if messages:
-                            for message in messages:
-                                if message['id'] not in logged_messages:
-                                    date = message['timestamp'].split('T')[0]
-                                    time = message['timestamp'].split('T')[1].split('.')[0]
-                                    log_entry = f"[ID: {message['id']}] On {date} at {time}, {message['author']['username']} said: {message['content']}\n"
-                                    
-                                    embeds = message.get('embeds', [])
-                                    attachments = message.get('attachments', [])
-                                    stickers = message.get('sticker_items', [])
-                                    reference = message.get('referenced_message', None)
-                                    
-                                    for embed in embeds:
-                                        if 'url' in embed:
-                                            log_entry += f"Embed URL: {embed['url']}\n"
-                                        elif 'title' in embed and 'description' in embed:
-                                            log_entry += f"Embed: {embed['title']} - {embed['description']}\n"
-                                    
-                                    for attachment in attachments:
-                                        log_entry += f"Attachment URL: {attachment['url']}\n"
-                                        if download_attachments:
-                                            await download_attachment(attachment['url'], server_name, channel_name, attachment['filename'])
+        self.btn_clear_logs = ttk.Button(self.frame_right, text="Clear Logs", command=self.clear_logs)
+        self.btn_clear_logs.pack(pady=5)
 
-                                    for sticker in stickers:
-                                        log_entry += f"Sticker: {sticker['name']} (ID: {sticker['id']})\n"
-
-                                    if reference:
-                                        log_entry += f"Reply to: {reference['author']['username']} - {reference['content'][:50]}...\n"
-
-                                    if 'flags' in message and message['flags'] & 1 << 11: 
-                                        log_entry += f"Forwarded from: {message.get('referenced_message', {}).get('id', 'Unknown')}\n"
-
-                                    try:
-                                        log_file.write(log_entry)
-                                        log_file.flush()
-                                        logged_messages[message['id']] = log_entry
-                                        print(log_entry.strip())
-                                    except IOError:
-                                        print(f"Failed to write to log file.")
-                                    last_message_id = message['id']
-
-                        print(f"Logged Messages: {len(logged_messages)}")
-                
-                except Exception as e:
-                    print(f"Error in logging loop: {e}")
-
-                await asyncio.sleep(0.5)  
-
-    except Exception as e:
-        print(f"Major error in logging process: {e}")
-
-def clean_server_name(server_name):
-    try:
-        cleaned_name = re.sub(r'[^\w\s-]', '', server_name)
-        cleaned_name = re.sub(r'[\s-]+', '_', cleaned_name)
-        return cleaned_name if cleaned_name else "default_server"
-    except Exception:
-        return "default_server"
-
-async def select_server(max_retries=3):
-    for attempt in range(max_retries):
-        try:
-            async with aiohttp.ClientSession() as session:
-                guilds = await get_user_guilds(session)
-                if not guilds:
-                    print(f"Retry {attempt + 1}/{max_retries}: No servers available.")
-                    continue
-                print("Available servers:")
-                for idx, guild in enumerate(guilds, 1):
-                    print(f"{idx}: {guild['name']}")
-                
-                while True:
-                    try:
-                        choice = int(input("\nSelect a server by number: ")) - 1
-                        if 0 <= choice < len(guilds):
-                            global selected_server
-                            selected_server = guilds[choice]['name']
-                            return selected_server
-                        else:
-                            print("Invalid choice. Try again.")
-                    except ValueError:
-                        print("Please enter a number.")
-        except Exception as e:
-            print(f"Error selecting server (Attempt {attempt + 1}): {e}")
-    print("Failed to select a server after multiple attempts.")
-    return None
-
-async def select_channel(max_retries=3):
-    for attempt in range(max_retries):
-        try:
-            if not selected_server:
-                print("No server selected. Please select a server first.")
-                return None
-            
-            async with aiohttp.ClientSession() as session:
-                guilds = await get_user_guilds(session)
-                guild_id = next((g['id'] for g in guilds if g['name'] == selected_server), None)
-                if guild_id is None:
-                    print(f"Retry {attempt + 1}/{max_retries}: Server name not found in guild list.")
-                    continue
-                channels = await get_guild_channels(session, guild_id)
-                if not channels:
-                    print(f"Retry {attempt + 1}/{max_retries}: No channels available in this server.")
-                    continue
-                print(f"\nAvailable channels for '{selected_server}':")
-                for idx, channel in enumerate(channels, 1):
-                    print(f"{idx}: {channel['name']} (ID: {channel['id']})")
-
-                while True:
-                    try:
-                        choice = int(input("\nSelect a channel by number: ")) - 1
-                        if 0 <= choice < len(channels):
-                            global selected_channel, selected_channel_id
-                            selected_channel = channels[choice]['name']
-                            selected_channel_id = channels[choice]['id']
-                            return selected_channel
-                        else:
-                            print("Invalid choice. Try again.")
-                    except ValueError:
-                        print("Please enter a number.")
-        except Exception as e:
-            print(f"Error selecting channel (Attempt {attempt + 1}): {e}")
-    print("Failed to select a channel after multiple attempts.")
-    return None
-
-async def start_logging():
-    global selected_channel, selected_server
-    try:
-        if not selected_channel:
-            print("No channel selected. Please select a channel first.")
-            return
-        
-        if not selected_server:
-            print("No server selected. Please select a server first.")
-            return
-        
-        print(f"Starting logging for channel '{selected_channel}' on server '{selected_server}'...")
-        await log_messages_from_current(selected_channel_id, selected_channel, clean_server_name(selected_server))
-    except Exception as e:
-        print(f"Logging failed to start: {e}")
-
-def stop_logging():
-    global logging_active
-    logging_active = False
-    print("Logging stopped.")
-    print(f"Final count - Logged Messages: {len(logged_messages)}")
-
-def handle_exit(signum, frame):
-    print("\nReceived exit signal. Stopping logging...")
-    stop_logging()
-    asyncio.get_event_loop().stop()
-
-async def main():
-    try:
-        async with aiohttp.ClientSession() as session:
-            user = await get_current_user(session)
-            if user:
-                print(f"Logged into account: {user.get('username', 'Unknown')}")
+    async def fetch_data(self, url):
+        async with self.session.get(url, headers=HEADERS) as response:
+            if response.status == 200:
+                return await response.json()
             else:
-                print("Could not fetch user information.")
+                messagebox.showerror("API Error", f"Failed to fetch data from {url}. Status: {response.status}")
+                return None
 
-            global download_attachments
-            download_attachments = input("Would you like to download attachments? (yes/no): ").lower() == 'yes'
+    async def load_servers(self):
+        url = f"{BASE_URL}/users/@me/guilds"
+        guilds = await self.fetch_data(url)
+        if guilds:
+            self.list_servers.delete(0, tk.END)
+            for guild in guilds:
+                self.list_servers.insert(tk.END, guild['name'])
 
-        print("Fetching available servers...")
-        await select_server()
-        await select_channel()
-        await start_logging()
-    except Exception as e:
-        print(f"An error occurred in main process: {e}")
+    async def load_channels(self):
+        selected_server_name = self.list_servers.get(tk.ACTIVE)
+        url = f"{BASE_URL}/users/@me/guilds"
+        guilds = await self.fetch_data(url)
+        guild_id = next((g['id'] for g in guilds if g['name'] == selected_server_name), None)
+        if guild_id:
+            url = f"{BASE_URL}/guilds/{guild_id}/channels"
+            channels = await self.fetch_data(url)
+            self.list_channels.delete(0, tk.END)
+            for channel in channels:
+                if channel['type'] == 0:  # Text channels only
+                    self.list_channels.insert(tk.END, f"{channel['name']} (ID: {channel['id']})")
+
+    async def log_messages(self):
+        if not self.selected_channels:
+            return
+        self.logging_active = True
+        self.btn_start_logging["state"] = tk.DISABLED
+        self.btn_stop_logging["state"] = tk.NORMAL
+        if not os.path.exists(self.log_dir):
+            os.makedirs(self.log_dir)
+        
+        while self.logging_active:
+            for channel_id in self.selected_channels:
+                url = f"{BASE_URL}/channels/{channel_id}/messages?limit=50"
+                messages = await self.fetch_data(url)
+                if messages:
+                    for message in messages:
+                        if message['id'] not in self.logged_messages:
+                            self.logged_messages[message['id']] = message
+                            log_file = os.path.join(self.log_dir, f"{channel_id}.json")
+                            with open(log_file, 'a+') as f:
+                                f.write(json.dumps(message) + '\n')
+                            print(f"{message['author']['username']}: {message['content']}")
+                            if self.download_attachments.get() and 'attachments' in message and message['attachments']:
+                                await self.download_attachments_files(message['attachments'], channel_id)
+            await asyncio.sleep(0.1)
+        self.btn_start_logging["state"] = tk.NORMAL
+        self.btn_stop_logging["state"] = tk.DISABLED
+
+    async def download_attachments_files(self, attachments, channel_id):
+        for attachment in attachments:
+            filename = os.path.join(self.log_dir, f"{channel_id}_{attachment['id']}_{attachment['filename']}")
+            async with self.session.get(attachment['url']) as resp:
+                if resp.status == 200:
+                    with open(filename, 'wb') as out_file:
+                        out_file.write(await resp.read())
+
+    def start_logging(self):
+        if not self.selected_server or not self.selected_channels:
+            messagebox.showwarning("Warning", "Please select a server and at least one channel before starting logging.")
+            return
+        if len(self.selected_channels) > 3:
+            messagebox.showwarning("Warning", "Warning: Logging more than 3 channels may cause instability, high local resource usage, and potential Discord account issues. Use caution.")
+        self.loop.create_task(self.log_messages())
+
+    def stop_logging(self):
+        self.logging_active = False
+        messagebox.showinfo("Info", "Logging stopped.")
+
+    def on_server_selected(self, event):
+        self.selected_server = self.list_servers.get(tk.ACTIVE)
+        self.loop.create_task(self.load_channels())
+
+    def on_channel_selected(self, event):
+        selected_channel_indices = self.list_channels.curselection()
+        self.selected_channels = []
+        for idx in selected_channel_indices:
+            selected_channel_text = self.list_channels.get(idx)
+            channel_id = selected_channel_text.split(" (ID: ")[1].rstrip(")")
+            self.selected_channels.append(channel_id)
+
+    async def main(self):
+        self.session = aiohttp.ClientSession()
+        url = f"{BASE_URL}/users/@me"
+        user = await self.fetch_data(url)
+        if user:
+            self.label_status.config(text=f"Logged in as: {user.get('username', 'Unknown')}")
+            await self.load_servers()
+        else:
+            messagebox.showerror("Error", "Failed to log in.")
+
+    def on_close(self):
+        self.loop.run_until_complete(self.session.close())
+        self.root.destroy()
+
+    def clear_logs(self):
+        if messagebox.askyesno("Confirm", "Are you sure you want to delete all logs?"):
+            for file in os.listdir(self.log_dir):
+                os.remove(os.path.join(self.log_dir, file))
+            messagebox.showinfo("Success", "All logs have been cleared.")
+
+def run_app():
+    root = tk.Tk()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    app = DiscordLoggerApp(root, loop)
+
+    def update_loop():
+        loop.call_soon(loop.stop)
+        loop.run_forever()
+        root.after(100, update_loop)
+
+    root.after(100, update_loop)
+    loop.run_until_complete(app.main())
+    root.protocol("WM_DELETE_WINDOW", app.on_close)
+    root.mainloop()
 
 if __name__ == "__main__":
-    signal.signal(signal.SIGINT, handle_exit)  
-    signal.signal(signal.SIGTERM, handle_exit)  
-    asyncio.run(main())
+    run_app()
