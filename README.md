@@ -90,8 +90,3 @@ python logging-beta.py
 4. **Beta software** - may contain bugs
 
 **Always inform participants when logging conversations!**
-
----
-
-**Report bugs**: [GitHub Issues]  
-**License**: Include proper licensing information here
