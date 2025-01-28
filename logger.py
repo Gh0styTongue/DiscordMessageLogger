@@ -55,20 +55,36 @@ async def get_guild_channels(session, guild_id):
     channels = await fetch_data(session, url)
     return [ch for ch in channels if ch and ch.get('type') == 0] if channels else []
 
+async def get_dm_channels(session):
+    url = f"{BASE_URL}/users/@me/channels"
+    channels = await fetch_data(session, url)
+    return [ch for ch in channels if ch and ch.get('type') in (1, 3)] if channels else []
+
 async def fetch_messages(session, channel_id, limit=50):
     url = f"{BASE_URL}/channels/{channel_id}/messages?limit={limit}"
     return await fetch_data(session, url)
+
+def clean_name(name):
+    try:
+        cleaned = re.sub(r'[^\w\s-]', '', name)
+        cleaned = re.sub(r'[\s-]+', '_', cleaned)
+        return cleaned if cleaned else "default"
+    except Exception:
+        return "default"
 
 async def log_messages_from_current(channel_id, channel_name, server_name):
     global logged_messages, last_message_id
     logged_messages = {}
 
-    try:
-        os.makedirs(server_name, exist_ok=True)
-    except OSError:
-        server_name = "fallback_server"
+    server_clean = clean_name(server_name)
+    channel_clean = clean_name(channel_name)
 
-    log_file_path = os.path.join(server_name, f"live_{channel_name}.txt")
+    try:
+        os.makedirs(server_clean, exist_ok=True)
+    except OSError:
+        server_clean = "fallback_server"
+
+    log_file_path = os.path.join(server_clean, f"live_{channel_clean}.txt")
 
     try:
         with open(log_file_path, 'a', encoding='utf-8') as log_file:
@@ -97,7 +113,7 @@ async def log_messages_from_current(channel_id, channel_name, server_name):
                                     for attachment in attachments:
                                         log_entry += f"Attachment URL: {attachment['url']}\n"
                                         if download_attachments:
-                                            await download_attachment(attachment['url'], server_name, channel_name, attachment['filename'])
+                                            await download_attachment(attachment['url'], server_clean, channel_clean, attachment['filename'])
 
                                     for sticker in stickers:
                                         log_entry += f"Sticker: {sticker['name']} (ID: {sticker['id']})\n"
@@ -122,18 +138,10 @@ async def log_messages_from_current(channel_id, channel_name, server_name):
                 except Exception as e:
                     print(f"Error in logging loop: {e}")
 
-                await asyncio.sleep(0.5)  
+                await asyncio.sleep(0.5)
 
     except Exception as e:
         print(f"Major error in logging process: {e}")
-
-def clean_server_name(server_name):
-    try:
-        cleaned_name = re.sub(r'[^\w\s-]', '', server_name)
-        cleaned_name = re.sub(r'[\s-]+', '_', cleaned_name)
-        return cleaned_name if cleaned_name else "default_server"
-    except Exception:
-        return "default_server"
 
 async def select_server(max_retries=3):
     for attempt in range(max_retries):
@@ -201,6 +209,52 @@ async def select_channel(max_retries=3):
     print("Failed to select a channel after multiple attempts.")
     return None
 
+async def select_dm_channel(max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            async with aiohttp.ClientSession() as session:
+                dm_channels = await get_dm_channels(session)
+                if not dm_channels:
+                    print(f"Retry {attempt + 1}/{max_retries}: No DM channels available.")
+                    continue
+                
+                channels_with_display = []
+                for ch in dm_channels:
+                    if ch['type'] == 1:
+                        recipients = ch.get('recipients', [])
+                        names = [r['username'] for r in recipients] if recipients else []
+                        display = ', '.join(names) if names else f"DM-{ch['id']}"
+                    else:
+                        display = ch.get('name', 'Unnamed Group DM')
+                        if not display:
+                            recipients = ch.get('recipients', [])
+                            names = [r['username'] for r in recipients] if recipients else []
+                            display = ', '.join(names) if names else 'Empty Group DM'
+                    channels_with_display.append((ch, display))
+
+                print("Available DM channels:")
+                for idx, (ch, disp) in enumerate(channels_with_display, 1):
+                    print(f"{idx}: {disp} (ID: {ch['id']})")
+
+                while True:
+                    try:
+                        choice = int(input("\nSelect a DM channel by number: ")) - 1
+                        if 0 <= choice < len(channels_with_display):
+                            global selected_server, selected_channel, selected_channel_id
+                            selected_ch, display_name = channels_with_display[choice]
+                            selected_server = "DMs"
+                            selected_channel = display_name
+                            selected_channel_id = selected_ch['id']
+                            return selected_channel
+                        else:
+                            print("Invalid choice. Try again.")
+                    except ValueError:
+                        print("Please enter a number.")
+        except Exception as e:
+            print(f"Error selecting DM channel (Attempt {attempt + 1}): {e}")
+    print("Failed to select a DM channel after multiple attempts.")
+    return None
+
 async def start_logging():
     global selected_channel, selected_server
     try:
@@ -208,12 +262,9 @@ async def start_logging():
             print("No channel selected. Please select a channel first.")
             return
         
-        if not selected_server:
-            print("No server selected. Please select a server first.")
-            return
-        
-        print(f"Starting logging for channel '{selected_channel}' on server '{selected_server}'...")
-        await log_messages_from_current(selected_channel_id, selected_channel, clean_server_name(selected_server))
+        print(f"Starting logging for channel '{selected_channel}'...")
+        server_name = selected_server if selected_server else "DMs"
+        await log_messages_from_current(selected_channel_id, selected_channel, server_name)
     except Exception as e:
         print(f"Logging failed to start: {e}")
 
@@ -240,14 +291,27 @@ async def main():
             global download_attachments
             download_attachments = input("Would you like to download attachments? (yes/no): ").lower() == 'yes'
 
-        print("Fetching available servers...")
-        await select_server()
-        await select_channel()
-        await start_logging()
+            print("\nChoose where to log messages:")
+            print("1: Server channels")
+            print("2: Direct Messages (DMs)")
+            choice = input("Enter 1 or 2: ").strip()
+
+            if choice == '1':
+                print("\nFetching servers...")
+                await select_server()
+                await select_channel()
+            elif choice == '2':
+                print("\nFetching DMs...")
+                await select_dm_channel()
+            else:
+                print("Invalid choice. Exiting.")
+                return
+
+            await start_logging()
     except Exception as e:
         print(f"An error occurred in main process: {e}")
 
 if __name__ == "__main__":
-    signal.signal(signal.SIGINT, handle_exit)  
-    signal.signal(signal.SIGTERM, handle_exit)  
+    signal.signal(signal.SIGINT, handle_exit)
+    signal.signal(signal.SIGTERM, handle_exit)
     asyncio.run(main())
