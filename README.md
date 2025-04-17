@@ -1,7 +1,7 @@
 ## Discord Message Logger
 
 ### ⚠️ User‑Token Only  
-- **Bot tokens aren’t supported**—you need a real user token.  
+- **Bot tokens aren’t supported** you need a real user token.  
 - **Create alt/throwaway accounts** to avoid risking your main account.  
 
 ### Features  
