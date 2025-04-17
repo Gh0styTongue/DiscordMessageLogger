@@ -15,7 +15,7 @@
 ### Setup  
 1. Install dependencies:  
    ```bash
-   pip install aiohttp
+   pip install aiohttp tkinter requests
    ```  
 2. Run the logger:  
    ```bash
