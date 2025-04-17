@@ -31,8 +31,7 @@
 4. Logging starts immediately—press **Ctrl+C** to stop.  
 
 ### Recommended Workflow  
-- Spin up a **fresh alt account** for each instance to avoid rate limits or security flags.  
-- Store multiple `.env` files (e.g. `.env.alt1`, `.env.alt2`) if you need several loggers running.  
+- Spin up a **fresh alt account** for each instance to avoid rate limits or security flags.
 - **Coming soon**: built‑in support for **multiple‑instance logging**, so you can monitor several accounts/channels at once.  
 
 ### File Layout  
