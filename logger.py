@@ -4,314 +4,209 @@ import os
 import re
 import signal
 import sys
+import logging
+import tkinter as tk
+from datetime import datetime
+from typing import Optional, Dict, List, Set
 
 BASE_URL = "https://discord.com/api/v9"
-TOKEN = "TOKEN_HERE"
-HEADERS = {"Authorization": TOKEN, "Content-Type": "application/json"}
+ENV_FILE = ".env"
+LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
 
-selected_server = None
-selected_channel = None
-selected_channel_id = None
-logging_active = True
-logged_messages = {}
-last_message_id = None
-download_attachments = False
+logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, handlers=[logging.StreamHandler(sys.stdout)])
+logger = logging.getLogger("discord-logger")
 
-async def fetch_data(session, url):
-    async with session.get(url, headers=HEADERS) as response:
-        if response.status == 200:
-            return await response.json()
-        else:
-            print(f"API Error: {url} returned status code {response.status}")
-            return None
+def load_token() -> Optional[str]:
+    if os.path.exists(ENV_FILE):
+        with open(ENV_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip().startswith("DISCORD_TOKEN="):
+                    return line.strip().split("=", 1)[1]
+    return None
 
-async def get_current_user(session):
-    url = f"{BASE_URL}/users/@me"
-    return await fetch_data(session, url)
+def save_token(token: str) -> None:
+    with open(ENV_FILE, "w", encoding="utf-8") as f:
+        f.write(f"DISCORD_TOKEN={token}")
 
-async def download_attachment(attachment_url, server_name, channel_name, filename):
-    async with aiohttp.ClientSession() as session:
+def prompt_token() -> str:
+    root = tk.Tk()
+    root.title("Enter Discord Token")
+    var = tk.StringVar()
+    tk.Entry(root, textvariable=var, width=50).pack(padx=10, pady=10)
+    tk.Button(root, text="Save", command=root.destroy).pack(pady=(0,10))
+    root.mainloop()
+    return var.get().strip()
+
+class DiscordLogger:
+    def __init__(self):
+        self.session: Optional[aiohttp.ClientSession] = None
+        self.server: Optional[str] = None
+        self.server_id: Optional[str] = None
+        self.channel: Optional[str] = None
+        self.channel_id: Optional[str] = None
+        self.logged_messages: Dict[str, str] = {}
+        self.previous_window_ids: Set[str] = set()
+        self.deleted_ids: Set[str] = set()
+        self.active: bool = True
+
+    async def fetch_json(self, url: str) -> Optional[List[Dict]]:
         try:
-            async with session.get(attachment_url) as response:
-                if response.status == 200:
-                    attachment_folder = os.path.join(server_name, channel_name, "attachments")
-                    if not os.path.exists(attachment_folder):
-                        os.makedirs(attachment_folder)
-                    
-                    file_path = os.path.join(attachment_folder, filename)
-                    with open(file_path, 'wb') as f:
-                        f.write(await response.read())
-                    print(f"Downloaded: {file_path}")
-        except Exception as e:
-            print(f"Failed to download attachment: {e}")
+            async with self.session.get(url) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                logger.error(f"{url} returned {resp.status}")
+        except aiohttp.ClientError as e:
+            logger.error(f"HTTP error {e} for {url}")
+        return None
 
-async def get_user_guilds(session):
-    url = f"{BASE_URL}/users/@me/guilds"
-    guilds = await fetch_data(session, url)
-    return guilds if guilds else []
+    async def fetch_message(self, channel_id: str, message_id: str) -> Optional[Dict]:
+        url = f"{BASE_URL}/channels/{channel_id}/messages/{message_id}"
+        try:
+            async with self.session.get(url) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+        except aiohttp.ClientError:
+            pass
+        return None
 
-async def get_guild_channels(session, guild_id):
-    url = f"{BASE_URL}/guilds/{guild_id}/channels"
-    channels = await fetch_data(session, url)
-    return [ch for ch in channels if ch and ch.get('type') == 0] if channels else []
+    async def get_current_user(self) -> Optional[Dict]:
+        return await self.fetch_json(f"{BASE_URL}/users/@me")
 
-async def get_dm_channels(session):
-    url = f"{BASE_URL}/users/@me/channels"
-    channels = await fetch_data(session, url)
-    return [ch for ch in channels if ch and ch.get('type') in (1, 3)] if channels else []
+    async def get_user_guilds(self) -> List[Dict]:
+        return await self.fetch_json(f"{BASE_URL}/users/@me/guilds") or []
 
-async def fetch_messages(session, channel_id, limit=50):
-    url = f"{BASE_URL}/channels/{channel_id}/messages?limit={limit}"
-    return await fetch_data(session, url)
+    async def get_guild_channels(self, guild_id: str) -> List[Dict]:
+        data = await self.fetch_json(f"{BASE_URL}/guilds/{guild_id}/channels") or []
+        return [ch for ch in data if ch.get("type") == 0]
 
-def clean_name(name):
-    try:
-        cleaned = re.sub(r'[^\w\s-]', '', name)
-        cleaned = re.sub(r'[\s-]+', '_', cleaned)
-        return cleaned if cleaned else "default"
-    except Exception:
-        return "default"
+    async def get_dm_channels(self) -> List[Dict]:
+        data = await self.fetch_json(f"{BASE_URL}/users/@me/channels") or []
+        return [ch for ch in data if ch.get("type") in (1, 3)]
 
-async def log_messages_from_current(channel_id, channel_name, server_name):
-    global logged_messages, last_message_id
-    logged_messages = {}
+    def clean_name(self, name: str) -> str:
+        s = re.sub(r"[^\w\s-]", "", name)
+        return re.sub(r"[\s-]+", "_", s) or "default"
 
-    server_clean = clean_name(server_name)
-    channel_clean = clean_name(channel_name)
+    async def select_server(self):
+        guilds = await self.get_user_guilds()
+        for i, g in enumerate(guilds, 1):
+            print(f"{i}: {g['name']}")
+        idx = int(input("Select server: ")) - 1
+        self.server = guilds[idx]["name"]
+        self.server_id = guilds[idx]["id"]
 
-    try:
-        os.makedirs(server_clean, exist_ok=True)
-    except OSError:
-        server_clean = "fallback_server"
+    async def select_channel(self):
+        channels = await self.get_guild_channels(self.server_id)
+        for i, ch in enumerate(channels, 1):
+            print(f"{i}: {ch['name']} (ID: {ch['id']})")
+        idx = int(input("Select channel: ")) - 1
+        self.channel = channels[idx]["name"]
+        self.channel_id = channels[idx]["id"]
 
-    log_file_path = os.path.join(server_clean, f"live_{channel_clean}.txt")
+    async def select_dm(self):
+        dms = await self.get_dm_channels()
+        for i, ch in enumerate(dms, 1):
+            name = ch.get("name") or ", ".join(r["username"] for r in ch.get("recipients", []))
+            print(f"{i}: {name} (ID: {ch['id']})")
+        idx = int(input("Select DM: ")) - 1
+        chosen = dms[idx]
+        self.server = "DMs"
+        self.channel = chosen.get("name") or ", ".join(r["username"] for r in chosen.get("recipients", []))
+        self.channel_id = chosen["id"]
 
-    try:
-        with open(log_file_path, 'a', encoding='utf-8') as log_file:
-            while logging_active:
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        messages = await fetch_messages(session, channel_id)
-                        if messages:
-                            for message in messages:
-                                if message['id'] not in logged_messages:
-                                    date = message['timestamp'].split('T')[0]
-                                    time = message['timestamp'].split('T')[1].split('.')[0]
-                                    log_entry = f"[ID: {message['id']}] On {date} at {time}, {message['author']['username']} said: {message['content']}\n"
-                                    
-                                    embeds = message.get('embeds', [])
-                                    attachments = message.get('attachments', [])
-                                    stickers = message.get('sticker_items', [])
-                                    reference = message.get('referenced_message', None)
-                                    
-                                    for embed in embeds:
-                                        if 'url' in embed:
-                                            log_entry += f"Embed URL: {embed['url']}\n"
-                                        elif 'title' in embed and 'description' in embed:
-                                            log_entry += f"Embed: {embed['title']} - {embed['description']}\n"
-                                    
-                                    for attachment in attachments:
-                                        log_entry += f"Attachment URL: {attachment['url']}\n"
-                                        if download_attachments:
-                                            await download_attachment(attachment['url'], server_clean, channel_clean, attachment['filename'])
+    async def log_loop(self):
+        server_dir = self.clean_name(self.server or "DMs")
+        channel_dir = self.clean_name(self.channel or "unknown")
+        os.makedirs(server_dir, exist_ok=True)
+        log_path = os.path.join(server_dir, f"live_{channel_dir}.txt")
 
-                                    for sticker in stickers:
-                                        log_entry += f"Sticker: {sticker['name']} (ID: {sticker['id']})\n"
+        if os.path.exists(log_path) and os.path.getsize(log_path) > 0:
+            sep = datetime.now().strftime("--- %Y-%m-%d %H:%M:%S ---\n")
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write("\n" + sep)
 
-                                    if reference:
-                                        log_entry += f"Reply to: {reference['author']['username']} - {reference['content'][:50]}...\n"
+        with open(log_path, "a", encoding="utf-8") as log_file:
+            while self.active:
+                url = f"{BASE_URL}/channels/{self.channel_id}/messages?limit=50"
+                msgs = await self.fetch_json(url) or []
+                current_ids = {m["id"] for m in msgs}
 
-                                    if 'flags' in message and message['flags'] & 1 << 11: 
-                                        log_entry += f"Forwarded from: {message.get('referenced_message', {}).get('id', 'Unknown')}\n"
+                if self.previous_window_ids:
+                    for mid in self.previous_window_ids:
+                        if mid not in current_ids and mid not in self.deleted_ids:
+                            logger.warning(f"Deleted message caught before deletion. See {log_path}")
+                            with open(log_path, "r+", encoding="utf-8") as f:
+                                data = f.read()
+                                entry = self.logged_messages.get(mid, "").rstrip("\n")
+                                updated = data.replace(entry, f"{entry} [DELETED]")
+                                f.seek(0)
+                                f.write(updated)
+                                f.truncate()
+                            self.deleted_ids.add(mid)
 
-                                    try:
-                                        log_file.write(log_entry)
-                                        log_file.flush()
-                                        logged_messages[message['id']] = log_entry
-                                        print(log_entry.strip())
-                                    except IOError:
-                                        print(f"Failed to write to log file.")
-                                    last_message_id = message['id']
+                self.previous_window_ids = current_ids
 
-                        print(f"Logged Messages: {len(logged_messages)}")
-                
-                except Exception as e:
-                    print(f"Error in logging loop: {e}")
+                for m in reversed(msgs):
+                    mid = m["id"]
+                    if mid not in self.logged_messages:
+                        ts = m["timestamp"]
+                        date, time = ts.split("T")[0], ts.split("T")[1].split(".")[0]
+                        author = m["author"]["username"]
+                        content = m["content"]
+                        entry = f"[ID: {mid}] On {date} at {time}, {author} said: {content}\n"
 
+                        ref = m.get("message_reference", {})
+                        ref_id = ref.get("message_id")
+                        if ref_id:
+                            orig = await self.fetch_message(self.channel_id, ref_id)
+                            if orig:
+                                orig_author = orig["author"]["username"]
+                                orig_content = orig["content"]
+                                entry += f"Forwarded from {orig_author} said: {orig_content}\n"
+                            else:
+                                entry += f"Forwarded from msg ID: {ref_id} [DELETED]\n"
+
+                        log_file.write(entry)
+                        log_file.flush()
+                        self.logged_messages[mid] = entry
+                        print(entry.strip())
+
+                logger.info(f"Total logged: {len(self.logged_messages)}")
                 await asyncio.sleep(0.5)
 
-    except Exception as e:
-        print(f"Major error in logging process: {e}")
+    def stop(self):
+        self.active = False
+        logger.info(f"Stopped. Total messages logged: {len(self.logged_messages)}")
 
-async def select_server(max_retries=3):
-    for attempt in range(max_retries):
-        try:
-            async with aiohttp.ClientSession() as session:
-                guilds = await get_user_guilds(session)
-                if not guilds:
-                    print(f"Retry {attempt + 1}/{max_retries}: No servers available.")
+    async def run(self):
+        while True:
+            token = load_token() or prompt_token()
+            save_token(token)
+            headers = {"Authorization": token, "Content-Type": "application/json"}
+            async with aiohttp.ClientSession(headers=headers) as sess:
+                self.session = sess
+                user = await self.get_current_user()
+                if not user:
+                    logger.error("Invalid token, please re-enter")
                     continue
-                print("Available servers:")
-                for idx, guild in enumerate(guilds, 1):
-                    print(f"{idx}: {guild['name']}")
-                
-                while True:
-                    try:
-                        choice = int(input("\nSelect a server by number: ")) - 1
-                        if 0 <= choice < len(guilds):
-                            global selected_server
-                            selected_server = guilds[choice]['name']
-                            return selected_server
-                        else:
-                            print("Invalid choice. Try again.")
-                    except ValueError:
-                        print("Please enter a number.")
-        except Exception as e:
-            print(f"Error selecting server (Attempt {attempt + 1}): {e}")
-    print("Failed to select a server after multiple attempts.")
-    return None
+                logger.info(f"Logged in as {user.get('username')}")
+                mode = input("1) Server channels\n2) DMs\nSelect: ").strip()
+                if mode == "1":
+                    await self.select_server()
+                    await self.select_channel()
+                elif mode == "2":
+                    await self.select_dm()
+                else:
+                    logger.error("Invalid selection")
+                    return
+                await self.log_loop()
+                break
 
-async def select_channel(max_retries=3):
-    for attempt in range(max_retries):
-        try:
-            if not selected_server:
-                print("No server selected. Please select a server first.")
-                return None
-            
-            async with aiohttp.ClientSession() as session:
-                guilds = await get_user_guilds(session)
-                guild_id = next((g['id'] for g in guilds if g['name'] == selected_server), None)
-                if guild_id is None:
-                    print(f"Retry {attempt + 1}/{max_retries}: Server name not found in guild list.")
-                    continue
-                channels = await get_guild_channels(session, guild_id)
-                if not channels:
-                    print(f"Retry {attempt + 1}/{max_retries}: No channels available in this server.")
-                    continue
-                print(f"\nAvailable channels for '{selected_server}':")
-                for idx, channel in enumerate(channels, 1):
-                    print(f"{idx}: {channel['name']} (ID: {channel['id']})")
-
-                while True:
-                    try:
-                        choice = int(input("\nSelect a channel by number: ")) - 1
-                        if 0 <= choice < len(channels):
-                            global selected_channel, selected_channel_id
-                            selected_channel = channels[choice]['name']
-                            selected_channel_id = channels[choice]['id']
-                            return selected_channel
-                        else:
-                            print("Invalid choice. Try again.")
-                    except ValueError:
-                        print("Please enter a number.")
-        except Exception as e:
-            print(f"Error selecting channel (Attempt {attempt + 1}): {e}")
-    print("Failed to select a channel after multiple attempts.")
-    return None
-
-async def select_dm_channel(max_retries=3):
-    for attempt in range(max_retries):
-        try:
-            async with aiohttp.ClientSession() as session:
-                dm_channels = await get_dm_channels(session)
-                if not dm_channels:
-                    print(f"Retry {attempt + 1}/{max_retries}: No DM channels available.")
-                    continue
-                
-                channels_with_display = []
-                for ch in dm_channels:
-                    if ch['type'] == 1:
-                        recipients = ch.get('recipients', [])
-                        names = [r['username'] for r in recipients] if recipients else []
-                        display = ', '.join(names) if names else f"DM-{ch['id']}"
-                    else:
-                        display = ch.get('name', 'Unnamed Group DM')
-                        if not display:
-                            recipients = ch.get('recipients', [])
-                            names = [r['username'] for r in recipients] if recipients else []
-                            display = ', '.join(names) if names else 'Empty Group DM'
-                    channels_with_display.append((ch, display))
-
-                print("Available DM channels:")
-                for idx, (ch, disp) in enumerate(channels_with_display, 1):
-                    print(f"{idx}: {disp} (ID: {ch['id']})")
-
-                while True:
-                    try:
-                        choice = int(input("\nSelect a DM channel by number: ")) - 1
-                        if 0 <= choice < len(channels_with_display):
-                            global selected_server, selected_channel, selected_channel_id
-                            selected_ch, display_name = channels_with_display[choice]
-                            selected_server = "DMs"
-                            selected_channel = display_name
-                            selected_channel_id = selected_ch['id']
-                            return selected_channel
-                        else:
-                            print("Invalid choice. Try again.")
-                    except ValueError:
-                        print("Please enter a number.")
-        except Exception as e:
-            print(f"Error selecting DM channel (Attempt {attempt + 1}): {e}")
-    print("Failed to select a DM channel after multiple attempts.")
-    return None
-
-async def start_logging():
-    global selected_channel, selected_server
-    try:
-        if not selected_channel:
-            print("No channel selected. Please select a channel first.")
-            return
-        
-        print(f"Starting logging for channel '{selected_channel}'...")
-        server_name = selected_server if selected_server else "DMs"
-        await log_messages_from_current(selected_channel_id, selected_channel, server_name)
-    except Exception as e:
-        print(f"Logging failed to start: {e}")
-
-def stop_logging():
-    global logging_active
-    logging_active = False
-    print("Logging stopped.")
-    print(f"Final count - Logged Messages: {len(logged_messages)}")
-
-def handle_exit(signum, frame):
-    print("\nReceived exit signal. Stopping logging...")
-    stop_logging()
-    asyncio.get_event_loop().stop()
-
-async def main():
-    try:
-        async with aiohttp.ClientSession() as session:
-            user = await get_current_user(session)
-            if user:
-                print(f"Logged into account: {user.get('username', 'Unknown')}")
-            else:
-                print("Could not fetch user information.")
-
-            global download_attachments
-            download_attachments = input("Would you like to download attachments? (yes/no): ").lower() == 'yes'
-
-            print("\nChoose where to log messages:")
-            print("1: Server channels")
-            print("2: Direct Messages (DMs)")
-            choice = input("Enter 1 or 2: ").strip()
-
-            if choice == '1':
-                print("\nFetching servers...")
-                await select_server()
-                await select_channel()
-            elif choice == '2':
-                print("\nFetching DMs...")
-                await select_dm_channel()
-            else:
-                print("Invalid choice. Exiting.")
-                return
-
-            await start_logging()
-    except Exception as e:
-        print(f"An error occurred in main process: {e}")
+def main():
+    dl = DiscordLogger()
+    signal.signal(signal.SIGINT, lambda s, f: dl.stop())
+    signal.signal(signal.SIGTERM, lambda s, f: dl.stop())
+    asyncio.run(dl.run())
 
 if __name__ == "__main__":
-    signal.signal(signal.SIGINT, handle_exit)
-    signal.signal(signal.SIGTERM, handle_exit)
-    asyncio.run(main())
+    main()
