@@ -9,7 +9,7 @@ import tkinter as tk
 from datetime import datetime
 from typing import Optional, Dict, List, Set
 
-BASE_URL = "https://discord.com/api/v9"
+BASE_URL = "https://discord.com/api/v10"
 ENV_FILE = ".env"
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
 
