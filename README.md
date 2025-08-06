@@ -63,8 +63,8 @@ This tool requires a **Discord User Token**, not a bot token. Using a user token
 
 1.  **Clone the repository (or download the files):**
     ```bash
-    git clone <repository_url>
-    cd <repository_directory>
+    git clone https://github.com/Gh0styTongue/DiscordMessageLogger
+    cd DiscordMessageLogger
     ```
 
 2.  **Install the required Python packages:**
